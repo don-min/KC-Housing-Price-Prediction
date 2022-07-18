@@ -1,0 +1,1356 @@
+---
+title: "STA302_Final_Project"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.width=12, fig.height=12)
+```
+
+###Feature Details
+  id - Unique ID for each home sold
+  date - Date of the home sale
+  price - Price of each home sold
+  bedrooms - Number of bedrooms
+  bathrooms - Number of bathrooms, where .5 accounts for a room with a toilet but no shower
+  sqft_living - Square footage of the apartments interior living space
+  sqft_lot - Square footage of the land space
+  floors - Number of floors
+  waterfront - A dummy variable for whether the apartment was overlooking the waterfront or not
+  view - An index from 0 to 4 of how good the view of the property was
+  condition - An index from 1 to 5 on the condition of the apartment,
+  grade - An index from 1 to 13, where 1-3 falls short of building construction and design, 7 has an average level of construction and design, and 11-13 have a high quality level of construction and design.
+  sqft_above - The square footage of the interior housing space that is above ground level
+  sqft_basement - The square footage of the interior housing space that is below ground level
+  yr_built - The year the house was initially built
+  yr_renovated - The year of the house’s last renovation
+  zipcode - What zipcode area the house is in
+  lat - Lattitude
+  long - Longitude
+  sqft_living15 - The square footage of interior housing living space for the nearest 15 neighbors
+  sqft_lot15 - The square footage of the land lots of the nearest 15 neighbors
+  
+###Loading Dataset
+```{r}
+df <- read.csv('kc_house_data.csv')
+#df ---> 21613 rows x 21 columns
+df
+```
+###Exploratory Data Analysis
+```{r}
+# step 1. insight on numerical summaries
+
+summary(df)
+```
+
+```{r}
+# step 2. Check for any missing values
+
+library(visdat)
+vis_miss(df)
+```
+Key Remark:
+  - less than 0.1% of the data is missing. However, these are still recommended to be removed for the fluent analysis.
+
+```{r}
+# Step 3. Dropping a unnecessary column & missing values
+
+df <- df[,-c(1,2)]
+df <- df[complete.cases(df),]
+df <- df[, c(2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,1)]
+df #---> 21611 rows x 19 columns
+
+vis_miss(df)
+#summary(df) ---> numerical summaries barely changed after coping with missing values
+```
+
+```{r}
+# Step 4. Check for any negative values
+
+sum(df$bedrooms < 0)
+sum(df$bathrooms < 0)
+sum(df$sqft_living < 0)
+sum(df$sqft_lot < 0)
+sum(df$floors < 0)
+sum(df$waterfront < 0)
+sum(df$view < 0)
+sum(df$condition < 0)
+sum(df$grade < 0)
+sum(df$sqft_above < 0)
+sum(df$sqft_basement < 0)
+sum(df$yr_built < 0)
+sum(df$yr_renovated < 0)
+sum(df$zipcode < 0)
+sum(df$lat < 0)
+sum(df$long < 0)
+sum(df$sqft_living15 < 0)
+sum(df$sqft_lot15 < 0)
+sum(df$price < 0)
+
+df <- df[,-c(15,16)]
+df$yr_renovated <- ifelse(df$yr_renovated == 0, 0, 1) # added after step 7***
+df # ---> 21611 rows x 17 columns
+```
+Remark:
+  - Noticed that King County, Washington had only negative longitude values. This will eventually cause an issue in Box-Cox Transformation later.
+  - Decided to drop both latitude & longitude columns
+  
+```{r}
+# Step 5. Separate numerical features and categorical features for the additional EDA (ie. correlation matrix, plotting)
+
+df_numerical <- df[, c("bedrooms", "bathrooms", "sqft_living", "sqft_lot", 
+                       "floors", "sqft_above", "sqft_basement", "yr_built", 
+                       "zipcode", "sqft_living15", "sqft_lot15", "price")]
+df_categorical <- df[, c("waterfront", "view", "condition", "grade","yr_renovated")]
+
+df_numerical # ---> 21611 rows x 12 columns
+df_categorical # ---> 21611 rows x 5 columns
+```
+
+```{r fig1, fig.height=16, fig.width=16}
+# Step 6. Correlation Matrix for df_numerical
+
+library(corrplot)
+library(RColorBrewer)
+
+M <- cor(df_numerical)
+corrplot(M, method = 'number', col=brewer.pal(n=8, name="PuOr"), type='lower')
+```
+
+```{r fig1, fig.height=8, fig.width=8}
+# Step 7-1. Numerical Predictors [histogram]
+
+par(mfrow=c(2,3))
+
+for(i in c(1:12)){
+  hist(df_numerical[,i], main=paste("Distribution of", names(df_numerical)[i]), xlab=names(df_numerical)[i])
+}
+```
+
+```{r fig1, fig.height=11, fig.width=11}
+# Step 7-2. Numerical Predictors vs. Response [scatterplot]
+
+par(mfrow=c(2,3))
+
+for(i in c(1:11)){
+  plot(df_numerical$price ~ df_numerical[,i], main=paste("Sale Price vs.", names(df_numerical)[i]), xlab=names(df_numerical)[i], ylab="Sale Price")
+}
+```
+Remark:
+  - From numerical columns, yr_renovated has 20697 zeros; ran sum(df$yr_renovated == 0)
+  - Decided to change it into categorical column ('0' = not renovated, '1' = renovated)
+  - Fixed in the previous line ***
+
+```{r fig1, fig.height=10, fig.width=10}
+# Step 8-1. Categorical Predictors vs Response [boxplot]
+
+par(mfrow=c(2,3))
+
+for(i in c(1:5)){
+  boxplot(df_numerical$price ~ df_categorical[,i],
+          main=paste("Sale Price by", names(df_categorical)[i]),
+          xlab=names(df_categorical)[i], ylab="Sale Price")
+}
+```
+
+```{r fig1, fig.height=10, fig.width=10}
+# Step 8-2. Categorical Predictors vs Response [scatterplot]
+
+par(mfrow=c(2,3))
+
+for(i in c(1:5)){
+  plot(df_numerical$price ~ df_categorical[,i],
+          main=paste("Sale Price vs.", names(df_categorical)[i]),
+          xlab=names(df_categorical)[i], ylab="Sale Price")
+}
+```
+EDA Complete!
+
+###Split Train/Test
+```{r}
+# Train/Test Split : 70/30
+
+set.seed(1)
+idx = sort(sample(nrow(df), nrow(df)*.7))
+df_train <- df[idx,]
+df_test <- df[-idx,]
+
+df_train # ---> 15127 rows x 17 columns
+df_test # ---> 6484 rows x 17 columns
+```
+
+```{r}
+# Compare the numerical summaries between df_train & df_test
+library(dplyr)
+
+mtr <- apply(select_if(df_train, is.numeric), 2, mean)
+sdtr <- apply(select_if(df_train, is.numeric), 2, sd)
+mtr
+sdtr
+
+mtest <- apply(select_if(df_test, is.numeric), 2, mean)
+sdtest <- apply(select_if(df_test, is.numeric), 2, sd)
+mtest
+sdtest
+```
+Note that they are very similar to one another. Well split!
+
+```{r}
+# Adjust df for my own convenience
+
+# df_train
+df_train_numerical <- df_train[,c("bedrooms", "bathrooms", "sqft_living", "sqft_lot", 
+                                  "floors", "sqft_above", "sqft_basement", "yr_built",
+                                  "zipcode", "sqft_living15", "sqft_lot15", "price")]
+df_train_categorical <- df_train[,c("waterfront", "view", "condition", "grade","yr_renovated")]
+
+
+# df_test
+df_test_numerical <- df_test[,c("bedrooms", "bathrooms", "sqft_living", "sqft_lot",
+                                "floors", "sqft_above", "sqft_basement", "yr_built",
+                                "zipcode", "sqft_living15", "sqft_lot15", "price")]
+df_test_categorical <- df_test[,c("waterfront", "view", "condition", "grade","yr_renovated")]
+
+
+# df_model
+df_model <- df[,c("bedrooms","bathrooms","sqft_living",
+                  "sqft_lot","view","condition","grade",
+                  "sqft_basement","yr_built","yr_renovated",
+                  "sqft_living15","sqft_lot15","price")]
+df_model_numerical <- df_model[, c(1,2,3,4,8,9,11,12,13)]
+df_model_categorical <- df_model[, c(5,6,7,10)]
+
+
+# df_train_model
+df_train_model <- df_train[,c("bedrooms","bathrooms","sqft_living",
+                              "sqft_lot","view","condition","grade",
+                              "sqft_basement","yr_built","yr_renovated",
+                              "sqft_living15","sqft_lot15","price")]
+df_train_model_numerical <- df_train_model[, c(1,2,3,4,8,9,11,12,13)]
+df_train_model_categorical <- df_train_model[, c(5,6,7,10)]
+
+
+df_train_numerical
+df_train_categorical
+
+df_test_numerical
+df_test_categorical
+
+df_model
+df_model_numerical
+df_model_categorical
+
+df_train_model
+df_train_model_numerical
+df_train_model_categorical
+```
+
+###Fit the "custom" model
+```{r}
+# Select predictors based on the research & contextual reasons
+
+custom_model <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(view) + as.factor(condition) + as.factor(grade) + sqft_basement + yr_built + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+
+summary(custom_model)
+```
+
+###Essential Assumptions Check
+1. Residual vs. Fitted (to check if the first 3 essential assumptions of linear regression model hold)
+2. Residual vs. Predictors (to check if the first 3 essential assumptions of linear regression model hold)
+3. Normal QQ Plot (to check normality)
+
+```{r fig1, fig.height=10, fig.width=10}
+par(mfrow=c(2,3))
+
+#1. Res vs. Fitted
+res <- resid(custom_model)
+fitted <- fitted(custom_model)
+
+plot(res~fitted, main="Res vs. Fitted", xlab="Fitted", ylab="Residuals")
+abline(a=0, b=0)
+
+#2. Res vs. Pred
+for(i in c(1:8)){
+  plot(res~df_train_model_numerical[,i], main=paste("Res vs.", names(df_train_model_numerical)[i]), xlab=names(df_train_model_numerical)[i], ylab="Residuals")
+}
+
+#3. Normal QQ
+qqnorm(res)
+qqline(res)
+```
+Remark:
+1. Many residual graphs seem not uniformly scattered around 0 for the full range of each predictor's values. Violation is detected.
+2. Normality is evidently violated as there isn't a straight diagonal string of points with minimal deviations at the ends.
+
+
+###Additional Conditions Check
+1. Conditional mean response is a single function of a linear combination of predictors (Response vs. Fitted)
+2. Conditional mean of each predictor is a linear function with another predictor (Pairwise plot of all predictors)
+
+```{r fig1, fig.height=10, fig.width=10}
+#1. Response vs. Fitted
+plot(df_train_model_numerical$price~fitted, main="Response v. Fitted", xlab="Fitted", ylab="Sale Price")
+lines(lowess(df_train_model_numerical$price ~ fitted), lty=2)
+abline(a = 0, b = 1)
+
+#2. Pairwise plot of all predictors
+pairs(df_train_model_numerical[,1:8])
+
+```
+Remark:
+1. Condition #1 holds as the points are reasonably scattered around randomly in the plot. Once again, due to a wide ragne of sale price, the graph visually looks as if it's not scattered randomly, but if looked closely, it is.
+      ===> Hence, constant error variance is verified.
+2. Condition #2 seems to fail as all pairwise relationships do not evidently appear linear.
+      ===> Hence, inherent linearity is violated. Box-Cox transformation is required.
+
+###Box-Cox Transformation
+```{r}
+library(car)
+
+custom_numerical_model <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + sqft_basement + yr_built + sqft_living15 + sqft_lot15, data = df_train_model)
+
+# Box-Cox on Y
+boxCox(custom_numerical_model)
+
+# Box-Cox on both Y & Xs
+p <- powerTransform(cbind(df_model_numerical[,1]+0.5, df_model_numerical[,2]+0.5, df_model_numerical[,3]+0.5, df_model_numerical[,4]+0.5, df_model_numerical[,5]+0.5, df_model_numerical[,6]+0.5, df_model_numerical[,7]+0.5, df_model_numerical[,8]+0.5, df_model_numerical[,9]+0.5)~1)
+
+summary(p)
+```
+Remark:
+  - Overall, transformation is needed.
+  - Namely, the response should get a lambda of -0.11 transformation.
+  
+```{r}
+# Transform both train & test datasets
+df_train$bedrooms <- df_train$bedrooms^0.43
+df_train$bathrooms <- df_train$bathrooms^0.43
+df_train$sqft_living <- df_train$sqft_living^0.12
+df_train$sqft_lot <- df_train$sqft_lot^-0.23
+df_train$sqft_basement <- df_train$sqft_basement^-0.18
+df_train$yr_built <- df_train$yr_built^24.44
+df_train$sqft_living15 <- df_train$sqft_living15^0.05
+df_train$sqft_lot15 <- df_train$sqft_lot15^-0.23
+df_train$price <- df_train$price^-0.11
+
+df_test$bedrooms <- df_test$bedrooms^0.43
+df_test$bathrooms <- df_test$bathrooms^0.43
+df_test$sqft_living <- df_test$sqft_living^0.12
+df_test$sqft_lot <- df_test$sqft_lot^-0.23
+df_test$sqft_basement <- df_test$sqft_basement^-0.18
+df_test$yr_built <- df_test$yr_built^24.44
+df_test$sqft_living15 <- df_test$sqft_living15^0.05
+df_test$sqft_lot15 <- df_test$sqft_lot15^-0.23
+df_test$price <- df_test$price^-0.11
+
+
+# df_train
+df_train_numerical <- df_train[,c("bedrooms", "bathrooms", "sqft_living", "sqft_lot", 
+                                  "floors", "sqft_above", "sqft_basement", "yr_built",
+                                  "zipcode", "sqft_living15", "sqft_lot15", "price")]
+df_train_categorical <- df_train[,c("waterfront", "view", "condition", "grade","yr_renovated")]
+
+
+# df_test
+df_test_numerical <- df_test[,c("bedrooms", "bathrooms", "sqft_living", "sqft_lot",
+                                "floors", "sqft_above", "sqft_basement", "yr_built",
+                                "zipcode", "sqft_living15", "sqft_lot15", "price")]
+df_test_categorical <- df_test[,c("waterfront", "view", "condition", "grade","yr_renovated")]
+
+```
+Transformation Done!
+
+###Transformed Model
+```{r}
+transformed_model <- lm(I(price^-0.11) ~ I(bedrooms^0.43) + I(bathrooms^0.43) + I(sqft_living^0.12) + I(sqft_lot^-0.23) + as.factor(view) + as.factor(condition) + as.factor(grade) + I(yr_built^24.44) + as.factor(yr_renovated) + I(sqft_living15^0.05) + I(sqft_lot15^-0.23), data = df_train_model)
+
+summary(transformed_model)
+```
+Remark:
+  - dropped "sqft_basement" b/c it contained Inf values after transformation
+  
+###Assumptions & Conditions Check : After Transformation
+```{r}
+# Adjust df accordingly
+
+#df_model
+df_model <- df[,c("bedrooms","bathrooms","sqft_living",
+                  "sqft_lot","view","condition","grade",
+                  "yr_built","yr_renovated",
+                  "sqft_living15","sqft_lot15","price")]
+
+df_model$bedrooms <- df_model$bedrooms^0.43
+df_model$bathrooms <- df_model$bathrooms^0.43
+df_model$sqft_living <- df_model$sqft_living^0.12
+df_model$sqft_lot <- df_model$sqft_lot^-0.23
+df_model$yr_built <- df_model$yr_built^24.44
+df_model$sqft_living15 <- df_model$sqft_living15^0.05
+df_model$sqft_lot15 <- df_model$sqft_lot15^-0.23
+df_model$price <- df_model$price^-0.11
+
+df_model_numerical <- df_model[, c(1,2,3,4,8,10,11,12)]
+df_model_categorical <- df_model[, c(5,6,7,9)]
+
+
+# df_train_model
+df_train_model <- df_train[,c("bedrooms","bathrooms","sqft_living",
+                              "sqft_lot","view","condition","grade",
+                              "yr_built","yr_renovated",
+                              "sqft_living15","sqft_lot15","price")]
+df_train_model_numerical <- df_train_model[, c(1,2,3,4,8,10,11,12)]
+df_train_model_categorical <- df_train_model[, c(5,6,7,9)]
+
+
+df_model
+df_model_numerical
+df_model_categorical
+
+df_train_model
+df_train_model_numerical
+df_train_model_categorical
+```
+
+```{r fig1, fig.height=10, fig.width=10}
+# Assumptions Check
+par(mfrow=c(2,3))
+
+#1. Res vs. Fitted
+res <- resid(transformed_model)
+fitted <- fitted(transformed_model)
+
+plot(res~fitted, main="Res vs. Fitted", xlab="Fitted", ylab="Residuals")
+abline(a=0, b=0)
+
+#2. Res vs. Pred
+for(i in c(1:8)){
+  plot(res~df_train_model_numerical[,i], main=paste("Res vs.", names(df_train_model_numerical)[i]), xlab=names(df_train_model_numerical)[i], ylab="Residuals")
+}
+
+#3. Normal QQ
+qqnorm(res)
+```
+Remark:
+1. Each residual graph seems more uniformly scattered around 0 for the full range of each predictor's values despite the wide range of each predictor's values. No more violations!
+2. Normality is clearly fixed as there is now a straight diagonal string of points with minimal deviations at the ends.
+
+```{r fig1, fig.height=10, fig.width=10}
+# Additional Conditions Check
+
+#1. Response vs. Fitted
+plot(df_train_model_numerical$price~fitted, main="(Y)^-0.11 versus Y-hat", xlab="Fitted", ylab="Sale Price")
+lines(lowess(df_train_model_numerical$price ~ fitted), lty=2)
+abline(a = 0, b = 1)
+
+#2. Pairwise plot of all predictors
+pairs(df_train_model_numerical[,1:8])
+
+```
+Remark:
+1. For the condition #1, the points are much more scattered around randomly in the plot after the transformation of Y^-0.11.
+2. For the condition #2, there seems to be more evident linear pairwise relationships between predictors.
+
+###Multicollinearity & Partial F Test on the "custom_model" 
+```{r}
+# Checking for multicollinearity
+vif(transformed_model)
+```
+Remark:
+  - GVIF^(1/(2*Df)) is comparable across a different number of parameters. In fact, according to John Fox in "An R and S-Plus Companion to Applied Regression", "it is analogous to taking the square root of the usual VIF".
+  - Since GVIF^(1/(2*Df)) < 5, multicollinearity amongst predictors may be considered to be minor.
+  - Hence, no predictors are removed due to the presence of multicollinearity.
+  
+```{r}
+# Partial F Test
+
+transformed_model <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(view) + as.factor(condition) + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+
+# check for 'bedrooms'
+transformed_model_1 <- lm(price ~ bathrooms + sqft_living + sqft_lot + as.factor(view) + as.factor(condition) + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+
+anova(transformed_model, transformed_model_1)
+#summary(transformed_model_1)
+```
+Remark:
+  - Do not remove "bedrooms" b/c p < 0.05
+  - Adj. R-squared : 0.6461 vs. 0.6433
+  - Hence, transformed_model >> transformed_model_1
+  
+```{r}
+transformed_model <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(view) + as.factor(condition) + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+
+# check for 'bathrooms'
+transformed_model_2 <- lm(price ~ bedrooms + sqft_living + sqft_lot + as.factor(view) + as.factor(condition) + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+
+anova(transformed_model, transformed_model_2)
+#summary(transformed_model_2)
+```
+Remark:
+  - Do not remove "bathrooms" b/c p < 0.05
+  - Adj. R-squared : 0.6461 vs. 0.6441
+  - Hence, transformed_model >> transformed_model_2
+  
+```{r}
+transformed_model <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(view) + as.factor(condition) + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+
+# check for 'sqft_living'
+transformed_model_3 <- lm(price ~ bedrooms + bathrooms + sqft_lot + as.factor(view) + as.factor(condition) + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+
+anova(transformed_model, transformed_model_3)
+#summary(transformed_model_3)
+```
+Remark:
+  - Do not remove "sqft_living" b/c p < 0.05
+  - Adj. R-squared : 0.6461 vs. 0.6273
+  - Hence, transformed_model >> transformed_model_3
+  
+```{r}
+transformed_model <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(view) + as.factor(condition) + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+
+# check for 'sqft_lot'
+transformed_model_4 <- lm(price ~ bedrooms + bathrooms + sqft_living + as.factor(view) + as.factor(condition) + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+
+anova(transformed_model, transformed_model_4)
+#summary(transformed_model_4)
+```
+Remark:
+  - Do not remove "sqft_lot" b/c p < 0.05
+  - Adj. R-squared : 0.6461 vs. 0.6451
+  - Hence, transformed_model >> transformed_model_4
+  
+```{r}
+transformed_model <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(view) + as.factor(condition) + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+
+# check for 'view'
+transformed_model_5 <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(condition) + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+
+anova(transformed_model, transformed_model_5)
+#summary(transformed_model_5)
+```
+Remark:
+  - Do not remove "view" b/c p < 0.05
+  - Adj. R-squared : 0.6461 vs. 0.6381
+  - Hence, transformed_model >> transformed_model_5
+
+```{r}
+transformed_model <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(view) + as.factor(condition) + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+
+# check for 'condition'
+transformed_model_6 <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(view) + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+
+anova(transformed_model, transformed_model_6)
+#summary(transformed_model_6)
+```
+Remark:
+  - Do not remove "condition" b/c p < 0.05
+  - Adj. R-squared : 0.6461 vs. 0.6437
+  - Hence, transformed_model >> transformed_model_6
+  
+```{r}
+transformed_model <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(view) + as.factor(condition) + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+
+# check for 'grade'
+transformed_model_7 <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(view) + as.factor(condition) + yr_built + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+
+anova(transformed_model, transformed_model_7)
+#summary(transformed_model_7)
+```
+Remark:
+  - Do not remove "grade" b/c p < 0.05
+  - Adj. R-squared : 0.6461 vs. 0.5748
+  - Hence, transformed_model >> transformed_model_7
+
+```{r}
+transformed_model <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(view) + as.factor(condition) + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+
+# check for 'yr_built'
+transformed_model_8 <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(view) + as.factor(condition) + as.factor(grade) + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+
+anova(transformed_model, transformed_model_8)
+#summary(transformed_model_8)
+```
+Remark:
+  - Do not remove "yr_built" b/c p < 0.05
+  - Adj. R-squared : 0.6461 vs. 0.6068
+  - Hence, transformed_model >> transformed_model_8
+  
+```{r}
+transformed_model <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(view) + as.factor(condition) + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+
+# check for 'yr_renovated'
+transformed_model_9 <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(view) + as.factor(condition) + as.factor(grade) + yr_built + sqft_living15 + sqft_lot15, data = df_train_model)
+
+anova(transformed_model, transformed_model_9)
+#summary(transformed_model_9)
+```
+Remark:
+  - Do not remove "yr_renovated" b/c p < 0.05
+  - Adj. R-squared : 0.6461 vs. 0.6459
+  - Hence, transformed_model >> transformed_model_9
+  
+```{r}
+transformed_model <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(view) + as.factor(condition) + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+
+# check for 'sqft_living15' & 'sqft_lot15' as neighbourhood
+transformed_model_10 <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(view) + as.factor(condition) + as.factor(grade) + yr_built + as.factor(yr_renovated), data = df_train_model)
+
+anova(transformed_model, transformed_model_10)
+summary(transformed_model_10)
+```
+Remark:
+  - Do not remove "sqft_living15" & "sqft_lot15" b/c p < 0.05
+  - Adj. R-squared : 0.6461 vs. 0.6353
+  - Hence, transformed_model >> transformed_model_10
+  
+###Quick DataFrame Checks
+```{r}
+df_test_model <- df_test[,c("bedrooms","bathrooms","sqft_living",
+                              "sqft_lot","view","condition","grade",
+                              "yr_built","yr_renovated",
+                              "sqft_living15","sqft_lot15","price")]
+df_test_model_numerical <- df_test_model[,c(1,2,3,4,8,10,11,12)]
+df_test_model_categorical <- df_test_model[,c(5,6,7,9)]
+
+
+df_train
+df_train_model
+df_train_model_numerical
+df_train_model_categorical
+
+df_test
+df_test_model
+df_test_model_numerical
+df_test_model_categorical
+```
+###Models Comparison - A
+Bottom Line :
+  a) Choose the model with:
+    - a high Adjusted R^2 value
+    - low AIC/AIC_C/BIC values (less severe multicollinearity within the model)
+  
+```{r}
+select = function(model, n)
+  {
+    SSres <- sum(model$residuals^2)
+    Rsq <- summary(model)$r.squared
+    Rsq_adj <- summary(model)$adj.r.squared
+    p <- length(model$coefficients) - 1
+    AIC <- n*log(SSres/n) + 2*p # you could also use AIC()
+    AICc <- AIC + (2*(p+2)*(p+3)/(n-p-1))
+    BIC <- n*log(SSres/n) + (p+2)*log(n) # could also use BIC()
+    res <- c(SSres, Rsq, Rsq_adj, AIC, AICc, BIC)
+    names(res) <- c("SSres", "Rsq", "Rsq_adj", "AIC", "AIC_c", "BIC")
+    print("============================")
+    return(res)
+    }
+
+# Constraint (a)
+select(custom_model,length(df_train_model))
+select(transformed_model,length(df_train_model))
+select(transformed_model_1,length(df_train_model))
+select(transformed_model_2,length(df_train_model))
+select(transformed_model_3,length(df_train_model))
+select(transformed_model_4,length(df_train_model))
+select(transformed_model_5,length(df_train_model))
+select(transformed_model_6,length(df_train_model))
+select(transformed_model_7,length(df_train_model))
+select(transformed_model_8,length(df_train_model))
+select(transformed_model_9,length(df_train_model))
+select(transformed_model_10,length(df_train_model))
+```
+Remark:
+  - transformed_model_5 & transformed_model_6 & transformed_model_10 are selected after checking with the constraint (a)
+
+###Assumptions & Conditions Check : After Fitting the model
+Before moving onto the constraint (b), do the assumptions & conditions check for the selected models
+```{r fig1, fig.height=10, fig.width=10}
+
+# Assumptions Check for transformed_model_5
+par(mfrow=c(2,3))
+
+#1. Res vs. Fitted
+res <- resid(transformed_model_5)
+fitted <- fitted(transformed_model_5)
+
+plot(res~fitted, main="Res vs. Fitted", xlab="Fitted", ylab="Residuals")
+abline(a=0, b=0)
+
+#2. Res vs. Pred
+for(i in c(1:8)){
+  plot(res~df_train_model_numerical[,i], main=paste("Res vs.", names(df_train_model_numerical)[i]), xlab=names(df_train_model_numerical)[i], ylab="Residuals")
+}
+
+#3. Normal QQ
+qqnorm(res)
+```
+```{r fig1, fig.height=10, fig.width=10}
+# Additional Conditions Check for transformed_model_5
+
+#1. Response vs. Fitted
+plot(df_train_model_numerical$price~fitted, main="(Y)^-0.11 versus Y-hat", xlab="Fitted", ylab="Sale Price")
+lines(lowess(df_train_model_numerical$price ~ fitted), lty=2)
+abline(a = 0, b = 1)
+
+#2. Pairwise plot of all predictors
+pairs(df_train_model_numerical[,1:8])
+```
+Remark:
+  - No violations detected for transformed_model_5
+  
+```{r fig1, fig.height=10, fig.width=10}
+# Assumptions Check for transformed_model_6
+par(mfrow=c(2,3))
+
+#1. Res vs. Fitted
+res <- resid(transformed_model_6)
+fitted <- fitted(transformed_model_6)
+
+plot(res~fitted, main="Res vs. Fitted", xlab="Fitted", ylab="Residuals")
+abline(a=0, b=0)
+
+#2. Res vs. Pred
+for(i in c(1:8)){
+  plot(res~df_train_model_numerical[,i], main=paste("Res vs.", names(df_train_model_numerical)[i]), xlab=names(df_train_model_numerical)[i], ylab="Residuals")
+}
+
+#3. Normal QQ
+qqnorm(res)
+```
+```{r fig1, fig.height=10, fig.width=10}
+# Additional Conditions Check for transformed_model_6
+
+#1. Response vs. Fitted
+plot(df_train_model_numerical$price~fitted, main="(Y)^-0.11 versus Y-hat", xlab="Fitted", ylab="Sale Price")
+lines(lowess(df_train_model_numerical$price ~ fitted), lty=2)
+abline(a = 0, b = 1)
+
+#2. Pairwise plot of all predictors
+pairs(df_train_model_numerical[,1:8])
+```
+Remark:
+  - No violations detected for transformed_model_6
+
+```{r fig1, fig.height=10, fig.width=10}
+# Assumptions Check for transformed_model_10
+par(mfrow=c(2,3))
+
+#1. Res vs. Fitted
+res <- resid(transformed_model_10)
+fitted <- fitted(transformed_model_10)
+
+plot(res~fitted, main="Res vs. Fitted", xlab="Fitted", ylab="Residuals")
+abline(a=0, b=0)
+
+#2. Res vs. Pred
+for(i in c(1:8)){
+  plot(res~df_train_model_numerical[,i], main=paste("Res vs.", names(df_train_model_numerical)[i]), xlab=names(df_train_model_numerical)[i], ylab="Residuals")
+}
+
+#3. Normal QQ
+qqnorm(res)
+```
+
+```{r fig1, fig.height=10, fig.width=10}
+# Additional Conditions Check for transformed_model_10
+
+#1. Response vs. Fitted
+plot(df_train_model_numerical$price~fitted, main="(Y)^-0.11 versus Y-hat", xlab="Fitted", ylab="Sale Price")
+lines(lowess(df_train_model_numerical$price ~ fitted), lty=2)
+abline(a = 0, b = 1)
+
+#2. Pairwise plot of all predictors
+pairs(df_train_model_numerical[,1:8])
+```
+Remark:
+  - No violations detected for transformed_model_10
+  
+###Models Comparison - B
+Bottom Line :
+  b) Choose the model that is least affected by outliers, leverage points, and influential points
+```{r}
+# Constraint (b)
+
+### Locate Leverage Points ###
+
+# information from the model
+n_5 <- length(df_train_model)
+p_5 <- length(coef(transformed_model_5))-1
+
+# calculate the leverage values and compare to cutoff
+h_5 <- hatvalues(transformed_model_5)
+hcut_5 <- 2*(p_5+1)/n_5
+
+# which observations are leverage points?
+w1_5 <- which(h_5 > hcut_5)
+w1_5
+
+par(mfrow=c(2,3))
+
+for(i in c(1:7)){
+  plot(df_train_model_numerical$price ~ df_train_model_numerical[,i], main=paste("Sale Price^-0.11 vs.", names(df_train_model_numerical)[i]), xlab=names(df_train_model_numerical)[i], ylab="Sale Price")
+  points(df_train_model_numerical[w1_5,8]~df_train_model_numerical[w1_5,i], col="red", pch=19)
+}
+
+```
+Remark:
+  - No Leverage Points
+  
+```{r}
+# Constraint (b)
+
+# Locate Outliers for the "large" dataset ###
+
+# calculate standardized residuals and compare to cutoff
+r_5 <- rstandard(transformed_model_5)
+
+# which observations are outliers?
+w2_5 <- which(r_5 < -4 | r_5 > 4)
+w2_5
+
+par(mfrow=c(2,3))
+
+for(i in c(1:7)){
+  plot(df_train_model_numerical$price ~ df_train_model_numerical[,i], main=paste("Sale Price^-0.11 vs.", names(df_train_model_numerical)[i]), xlab=names(df_train_model_numerical)[i], ylab="Sale Price")
+  points(df_train_model_numerical[w2_5,8]~df_train_model_numerical[w2_5,i], col="red", pch=19)
+}
+
+```
+Remark:
+  - Total 12 Outliers
+
+```{r}
+# Constraint (b)
+
+### Locate Influential Points ###
+
+# find the cooks distance and compare to cutoff
+Dcutoff_5 <- qf(0.5, p_5+1, n_5-p_5-1)
+D_5 <- cooks.distance(transformed_model_5)
+which(D_5 > Dcutoff_5)
+
+# find the DFFITS and compare to cutoff
+DFFITScut_5 <- 2*sqrt((p_5+1)/n_5)
+dfs_5 <- dffits(transformed_model_5)
+w3_5 <- which(abs(dfs_5) > DFFITScut_5)
+
+# find the DFBETAS and compare to cutoff (notice the dimension of DFBETAS)
+DFBETAcut_5 <- 2/sqrt(n_5)
+dfb_5 <- dfbetas(transformed_model_5)
+
+w4_5 <- which(abs(dfb_5[,1]) > DFBETAcut_5)
+w5_5 <- which(abs(dfb_5[,2]) > DFBETAcut_5)
+w6_5 <- which(abs(dfb_5[,3]) > DFBETAcut_5)
+w7_5 <- which(abs(dfb_5[,4]) > DFBETAcut_5)
+w8_5 <- which(abs(dfb_5[,5]) > DFBETAcut_5)
+w9_5 <- which(abs(dfb_5[,6]) > DFBETAcut_5)
+w10_5 <- which(abs(dfb_5[,7]) > DFBETAcut_5)
+w11_5 <- which(abs(dfb_5[,8]) > DFBETAcut_5)
+w12_5 <- which(abs(dfb_5[,9]) > DFBETAcut_5)
+w13_5 <- which(abs(dfb_5[,10]) > DFBETAcut_5)
+w14_5 <- which(abs(dfb_5[,11]) > DFBETAcut_5)
+w15_5 <- which(abs(dfb_5[,12]) > DFBETAcut_5)
+w16_5 <- which(abs(dfb_5[,13]) > DFBETAcut_5)
+w17_5 <- which(abs(dfb_5[,14]) > DFBETAcut_5)
+w18_5 <- which(abs(dfb_5[,15]) > DFBETAcut_5)
+w19_5 <- which(abs(dfb_5[,16]) > DFBETAcut_5)
+w20_5 <- which(abs(dfb_5[,17]) > DFBETAcut_5)
+w21_5 <- which(abs(dfb_5[,18]) > DFBETAcut_5)
+w22_5 <- which(abs(dfb_5[,19]) > DFBETAcut_5)
+w23_5 <- which(abs(dfb_5[,20]) > DFBETAcut_5)
+w24_5 <- which(abs(dfb_5[,21]) > DFBETAcut_5)
+w25_5 <- which(abs(dfb_5[,22]) > DFBETAcut_5)
+w26_5 <- which(abs(dfb_5[,23]) > DFBETAcut_5)
+w27_5 <- which(abs(dfb_5[,24]) > DFBETAcut_5)
+```
+
+```{r}
+w_5 <- unique(c(w3_5, w4_5, w5_5, w6_5, w7_5,
+              w8_5, w9_5, w10_5,w11_5,w12_5,
+              w13_5,w14_5,w15_5,w16_5,w17_5,
+              w18_5,w19_5,w20_5,w21_5,w22_5,
+              w23_5,w24_5,w25_5,w26_5,w27_5))
+
+w_5
+
+par(mfrow=c(2,3))
+
+for(i in c(1:7)){
+  plot(df_train_model_numerical$price ~ df_train_model_numerical[,i], main=paste("Sale Price^-0.11 vs.", names(df_train_model_numerical)[i]), xlab=names(df_train_model_numerical)[i], ylab="Sale Price")
+  points(df_train_model_numerical[w_5,8]~df_train_model_numerical[w_5,i], col="red", pch=19)
+}
+```
+Remark:
+  - Total 8 Influential Points
+  
+```{r}
+# Constraint (b)
+
+### Locate Leverage Points ###
+
+# information from the model
+n_6 <- length(df_train_model)
+p_6 <- length(coef(transformed_model_6))-1
+
+# calculate the leverage values and compare to cutoff
+h_6 <- hatvalues(transformed_model_6)
+hcut_6 <- 2*(p_6+1)/n_6
+
+# which observations are leverage points?
+w1_6 <- which(h_6 > hcut_6)
+w1_6
+
+par(mfrow=c(2,3))
+
+for(i in c(1:7)){
+  plot(df_train_model_numerical$price ~ df_train_model_numerical[,i], main=paste("Sale Price^-0.11 vs.", names(df_train_model_numerical)[i]), xlab=names(df_train_model_numerical)[i], ylab="Sale Price")
+  points(df_train_model_numerical[w1_6,8]~df_train_model_numerical[w1_6,i], col="red", pch=19)
+}
+
+```
+Remark:
+  - No Leverage Points
+  
+```{r}
+# Constraint (b)
+
+# Locate Outliers for the "large" dataset ###
+
+# calculate standardized residuals and compare to cutoff
+r_6 <- rstandard(transformed_model_6)
+
+# which observations are outliers?
+w2_6 <- which(r_6 < -4 | r_6 > 4)
+w2_6
+
+par(mfrow=c(2,3))
+
+for(i in c(1:7)){
+  plot(df_train_model_numerical$price ~ df_train_model_numerical[,i], main=paste("Sale Price^-0.11 vs.", names(df_train_model_numerical)[i]), xlab=names(df_train_model_numerical)[i], ylab="Sale Price")
+  points(df_train_model_numerical[w2_6,8]~df_train_model_numerical[w2_6,i], col="red", pch=19)
+}
+```
+Remark:
+  - Total 14 Outliers
+  
+```{r}
+# Constraint (b)
+
+### Locate Influential Points ###
+
+# find the cooks distance and compare to cutoff
+Dcutoff_6 <- qf(0.5, p_6+1, n_6-p_6-1)
+D_6 <- cooks.distance(transformed_model_6)
+which(D_6 > Dcutoff_6)
+
+# find the DFFITS and compare to cutoff
+DFFITScut_6 <- 2*sqrt((p_6+1)/n_6)
+dfs_6 <- dffits(transformed_model_6)
+w3_6 <- which(abs(dfs_6) > DFFITScut_6)
+
+# find the DFBETAS and compare to cutoff (notice the dimension of DFBETAS)
+DFBETAcut_6 <- 2/sqrt(n_6)
+dfb_6 <- dfbetas(transformed_model_6)
+
+w4_6 <- which(abs(dfb_6[,1]) > DFBETAcut_6)
+w5_6 <- which(abs(dfb_6[,2]) > DFBETAcut_6)
+w6_6 <- which(abs(dfb_6[,3]) > DFBETAcut_6)
+w7_6 <- which(abs(dfb_6[,4]) > DFBETAcut_6)
+w8_6 <- which(abs(dfb_6[,5]) > DFBETAcut_6)
+w9_6 <- which(abs(dfb_6[,6]) > DFBETAcut_6)
+w10_6 <- which(abs(dfb_6[,7]) > DFBETAcut_6)
+w11_6 <- which(abs(dfb_6[,8]) > DFBETAcut_6)
+w12_6 <- which(abs(dfb_6[,9]) > DFBETAcut_6)
+w13_6 <- which(abs(dfb_6[,10]) > DFBETAcut_6)
+w14_6 <- which(abs(dfb_6[,11]) > DFBETAcut_6)
+w15_6 <- which(abs(dfb_6[,12]) > DFBETAcut_6)
+w16_6 <- which(abs(dfb_6[,13]) > DFBETAcut_6)
+w17_6 <- which(abs(dfb_6[,14]) > DFBETAcut_6)
+w18_6 <- which(abs(dfb_6[,15]) > DFBETAcut_6)
+w19_6 <- which(abs(dfb_6[,16]) > DFBETAcut_6)
+w20_6 <- which(abs(dfb_6[,17]) > DFBETAcut_6)
+w21_6 <- which(abs(dfb_6[,18]) > DFBETAcut_6)
+w22_6 <- which(abs(dfb_6[,19]) > DFBETAcut_6)
+w23_6 <- which(abs(dfb_6[,20]) > DFBETAcut_6)
+w24_6 <- which(abs(dfb_6[,21]) > DFBETAcut_6)
+w25_6 <- which(abs(dfb_6[,22]) > DFBETAcut_6)
+w26_6 <- which(abs(dfb_6[,23]) > DFBETAcut_6)
+w27_6 <- which(abs(dfb_6[,24]) > DFBETAcut_6)
+
+w_6 <- unique(c(w3_6, w4_6, w5_6, w6_6, w7_6,
+              w8_6, w9_6, w10_6,w11_6,w12_6,
+              w13_6,w14_6,w15_6,w16_6,w17_6,
+              w18_6,w19_6,w20_6,w21_6,w22_6,
+              w23_6,w24_6,w25_6,w26_6,w27_6))
+
+w_6
+
+par(mfrow=c(2,3))
+
+for(i in c(1:7)){
+  plot(df_train_model_numerical$price ~ df_train_model_numerical[,i], main=paste("Sale Price^-0.11 vs.", names(df_train_model_numerical)[i]), xlab=names(df_train_model_numerical)[i], ylab="Sale Price")
+  points(df_train_model_numerical[w_6,8]~df_train_model_numerical[w_6,i], col="red", pch=19)
+}
+```
+Remark:
+  - Total 2 Influential Points
+  
+```{r}
+# Constraint (b)
+
+### Locate Leverage Points ###
+
+# information from the model
+n_10 <- length(df_train_model)
+p_10 <- length(coef(transformed_model_10))-1
+
+# calculate the leverage values and compare to cutoff
+h_10 <- hatvalues(transformed_model_10)
+hcut_10 <- 2*(p_10+1)/n_10
+
+# which observations are leverage points?
+w1_10 <- which(h_10 > hcut_10)
+w1_10
+
+par(mfrow=c(2,3))
+
+for(i in c(1:7)){
+  plot(df_train_model_numerical$price ~ df_train_model_numerical[,i], main=paste("Sale Price^-0.11 vs.", names(df_train_model_numerical)[i]), xlab=names(df_train_model_numerical)[i], ylab="Sale Price")
+  points(df_train_model_numerical[w1_10,8]~df_train_model_numerical[w1_10,i], col="red", pch=19)
+}
+```
+Remark:
+  - No Leverage Points
+  
+```{r}
+# Constraint (b)
+
+# Locate Outliers for the "large" dataset ###
+
+# calculate standardized residuals and compare to cutoff
+r_10 <- rstandard(transformed_model_10)
+
+# which observations are outliers?
+w2_10 <- which(r_10 < -4 | r_10 > 4)
+w2_10
+
+par(mfrow=c(2,3))
+
+for(i in c(1:7)){
+  plot(df_train_model_numerical$price ~ df_train_model_numerical[,i], main=paste("Sale Price^-0.11 vs.", names(df_train_model_numerical)[i]), xlab=names(df_train_model_numerical)[i], ylab="Sale Price")
+  points(df_train_model_numerical[w2_10,8]~df_train_model_numerical[w2_10,i], col="red", pch=19)
+}
+```
+Remark:
+  - Total 12 Outliers 
+  
+```{r}
+# Constraint (b)
+
+### Locate Influential Points ###
+
+# find the cooks distance and compare to cutoff
+Dcutoff_10 <- qf(0.5, p_10+1, n_10-p_10-1)
+D_10 <- cooks.distance(transformed_model_10)
+which(D_10 > Dcutoff_10)
+
+# find the DFFITS and compare to cutoff
+DFFITScut_10 <- 2*sqrt((p_10+1)/n_10)
+dfs_10 <- dffits(transformed_model_10)
+w3_10 <- which(abs(dfs_10) > DFFITScut_10)
+
+# find the DFBETAS and compare to cutoff (notice the dimension of DFBETAS)
+DFBETAcut_10 <- 2/sqrt(n_10)
+dfb_10 <- dfbetas(transformed_model_10)
+
+w4_10 <- which(abs(dfb_10[,1]) > DFBETAcut_10)
+w5_10 <- which(abs(dfb_10[,2]) > DFBETAcut_10)
+w6_10 <- which(abs(dfb_10[,3]) > DFBETAcut_10)
+w7_10 <- which(abs(dfb_10[,4]) > DFBETAcut_10)
+w8_10 <- which(abs(dfb_10[,5]) > DFBETAcut_10)
+w9_10 <- which(abs(dfb_10[,6]) > DFBETAcut_10)
+w10_10 <- which(abs(dfb_10[,7]) > DFBETAcut_10)
+w11_10 <- which(abs(dfb_10[,8]) > DFBETAcut_10)
+w12_10 <- which(abs(dfb_10[,9]) > DFBETAcut_10)
+w13_10 <- which(abs(dfb_10[,10]) > DFBETAcut_10)
+w14_10 <- which(abs(dfb_10[,11]) > DFBETAcut_10)
+w15_10 <- which(abs(dfb_10[,12]) > DFBETAcut_10)
+w16_10 <- which(abs(dfb_10[,13]) > DFBETAcut_10)
+w17_10 <- which(abs(dfb_10[,14]) > DFBETAcut_10)
+w18_10 <- which(abs(dfb_10[,15]) > DFBETAcut_10)
+w19_10 <- which(abs(dfb_10[,16]) > DFBETAcut_10)
+w20_10 <- which(abs(dfb_10[,17]) > DFBETAcut_10)
+w21_10 <- which(abs(dfb_10[,18]) > DFBETAcut_10)
+w22_10 <- which(abs(dfb_10[,19]) > DFBETAcut_10)
+w23_10 <- which(abs(dfb_10[,20]) > DFBETAcut_10)
+w24_10 <- which(abs(dfb_10[,21]) > DFBETAcut_10)
+w25_10 <- which(abs(dfb_10[,22]) > DFBETAcut_10)
+w26_10 <- which(abs(dfb_10[,23]) > DFBETAcut_10)
+w27_10 <- which(abs(dfb_10[,24]) > DFBETAcut_10)
+
+w_10 <- unique(c(w3_10, w4_10, w5_10, w6_10, w7_10,
+              w8_10, w9_10, w10_10,w11_10,w12_10,
+              w13_10,w14_10,w15_10,w16_10,w17_10,
+              w18_10,w19_10,w20_10,w21_10,w22_10,
+              w23_10,w24_10,w25_10,w26_10,w27_10))
+
+w_10
+
+par(mfrow=c(2,3))
+
+for(i in c(1:7)){
+  plot(df_train_model_numerical$price ~ df_train_model_numerical[,i], main=paste("Sale Price^-0.11 vs.", names(df_train_model_numerical)[i]), xlab=names(df_train_model_numerical)[i], ylab="Sale Price")
+  points(df_train_model_numerical[w_10,8]~df_train_model_numerical[w_10,i], col="red", pch=19)
+}
+```
+Remark:
+  - Total 10 Influential Points
+  
+###Further Modelling from transformed_model_6
+Following the aforementioned constraints (a) & (b), the final model is selected to be transformed_model_6.
+Let's continue to seek for a "better" model by further dropping the columns that were not included in transformed_model_5 & transformed_model_10.
+
+```{r}
+
+# drop 'view' from transformed_model_5
+second_round_model_1 <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_living15 + sqft_lot15, data = df_train_model)
+select(second_round_model_1, length(df_train_model))
+
+# drop both 'sqft_living15' and 'sqft_lot15' from transformed_model_10
+second_round_model_2 <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(view) + as.factor(grade) + yr_built + as.factor(yr_renovated), data = df_train_model)
+select(second_round_model_2, length(df_train_model))
+
+# drop all the features from both transformed_model_5 and transformed_model_10
+second_round_model_3 <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(grade) + yr_built + as.factor(yr_renovated), data = df_train_model)
+select(second_round_model_3, length(df_train_model))
+
+# include 'sqft_living15' from second_round_model_3
+second_round_model_4 <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_living15, data = df_train_model)
+select(second_round_model_4, length(df_train_model))
+
+# include 'sqft_lot15' from second_round_model_3
+second_round_model_5 <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_lot15, data = df_train_model)
+select(second_round_model_5, length(df_train_model))
+```
+Remark:
+  - Following the same fashion in the previous constraint (a), second_round_model_4 is selected.
+  
+```{r}
+select(transformed_model_6, length(df_train_model))
+select(second_round_model_4, length(df_train_model))
+```
+Remark:
+  - Very similar adj. R^2 value, but significantly decreased AIC, AIC_c, BIC
+  - Hence, second_round_model_4 is selected to be the final model!
+  
+###Final Model Summary
+```{r}
+final_model <- second_round_model_4
+select(final_model, length(df_train_model))
+summary(final_model)
+```
+
+
+```{r fig1, fig.height=10, fig.width=10}
+# Assumptions Check for final_model
+par(mfrow=c(3,3))
+
+#1. Res vs. Fitted
+res <- resid(final_model)
+fitted <- fitted(final_model)
+
+plot(res~fitted, main="Res vs. Fitted", xlab="Fitted", ylab="Residuals")
+abline(a=0, b=0)
+
+#2. Res vs. Pred
+for(i in c(1:6)){
+  plot(res~df_train_model_numerical[,i], main=paste("Res vs.", names(df_train_model_numerical)[i]), xlab=names(df_train_model_numerical)[i], ylab="Residuals")
+}
+plot(res~df_train_model_numerical[,8], main="Res vs. price", xlab="price", ylab="Residuals")
+
+#3. Normal QQ
+qqnorm(res)
+```
+```{r fig1, fig.height=10, fig.width=10}
+# Additional Conditions Check for final_model
+
+#1. Response vs. Fitted
+plot(df_train_model_numerical$price~fitted, main="(Y)^-0.11 versus Y-hat", xlab="Fitted", ylab="Sale Price")
+lines(lowess(df_train_model_numerical$price ~ fitted), lty=2)
+abline(a = 0, b = 1)
+
+#2. Pairwise plot of all predictors
+pairs(df_train_model_numerical[,1:6])
+```
+Remark:
+  - No violations detected in final_model
+```{r}
+### Locate Leverage Points ###
+
+# information from the model
+n_f <- length(df_train_model)
+p_f <- length(coef(final_model))-1
+
+# calculate the leverage values and compare to cutoff
+h_f <- hatvalues(final_model)
+hcut_f <- 2*(p_f+1)/n_f
+
+# which observations are leverage points?
+w1_f <- which(h_f > hcut_f)
+w1_f
+
+par(mfrow=c(2,3))
+
+for(i in c(1:6)){
+  plot(df_train_model_numerical$price ~ df_train_model_numerical[,i], main=paste("Sale Price^-0.11 vs.", names(df_train_model_numerical)[i]), xlab=names(df_train_model_numerical)[i], ylab="Sale Price")
+  points(df_train_model_numerical[w1_f,8]~df_train_model_numerical[w1_f,i], col="red", pch=19)
+}
+```
+
+```{r}
+# Locate Outliers for the "large" dataset ###
+
+# calculate standardized residuals and compare to cutoff
+r_f <- rstandard(final_model)
+
+# which observations are outliers?
+w2_f<- which(r_f < -4 | r_f > 4)
+w2_f
+
+par(mfrow=c(2,3))
+
+for(i in c(1:6)){
+  plot(df_train_model_numerical$price ~ df_train_model_numerical[,i], main=paste("Sale Price^-0.11 vs.", names(df_train_model_numerical)[i]), xlab=names(df_train_model_numerical)[i], ylab="Sale Price")
+  points(df_train_model_numerical[w2_f,8]~df_train_model_numerical[w2_f,i], col="red", pch=19)
+}
+```
+
+```{r}
+### Locate Influential Points ###
+
+# find the cooks distance and compare to cutoff
+Dcutoff_f <- qf(0.5, p_f+1, n_f-p_f-1)
+D_f <- cooks.distance(final_model)
+which(D_f > Dcutoff_f)
+
+# find the DFFITS and compare to cutoff
+DFFITScut_f <- 2*sqrt((p_f+1)/n_f)
+dfs_f <- dffits(final_model)
+w3_f <- which(abs(dfs_f) > DFFITScut_f)
+
+# find the DFBETAS and compare to cutoff (notice the dimension of DFBETAS)
+DFBETAcut_f <- 2/sqrt(n_f)
+dfb_f <- dfbetas(final_model)
+
+w4_f <- which(abs(dfb_f[,1]) > DFBETAcut_f)
+w5_f <- which(abs(dfb_f[,2]) > DFBETAcut_f)
+w6_f <- which(abs(dfb_f[,3]) > DFBETAcut_f)
+w7_f <- which(abs(dfb_f[,4]) > DFBETAcut_f)
+w8_f <- which(abs(dfb_f[,5]) > DFBETAcut_f)
+w9_f <- which(abs(dfb_f[,6]) > DFBETAcut_f)
+w10_f <- which(abs(dfb_f[,7]) > DFBETAcut_f)
+w11_f <- which(abs(dfb_f[,8]) > DFBETAcut_f)
+w12_f <- which(abs(dfb_f[,9]) > DFBETAcut_f)
+w13_f <- which(abs(dfb_f[,10]) > DFBETAcut_f)
+w14_f <- which(abs(dfb_f[,11]) > DFBETAcut_f)
+w15_f <- which(abs(dfb_f[,12]) > DFBETAcut_f)
+w16_f <- which(abs(dfb_f[,13]) > DFBETAcut_f)
+w17_f <- which(abs(dfb_f[,14]) > DFBETAcut_f)
+w18_f <- which(abs(dfb_f[,15]) > DFBETAcut_f)
+w19_f <- which(abs(dfb_f[,16]) > DFBETAcut_f)
+w20_f <- which(abs(dfb_f[,17]) > DFBETAcut_f)
+w21_f <- which(abs(dfb_f[,18]) > DFBETAcut_f)
+w22_f <- which(abs(dfb_f[,19]) > DFBETAcut_f)
+
+w_f <- unique(c(w3_f, w4_f, w5_f, w6_f, w7_f,
+              w8_f, w9_f, w10_f,w11_f,w12_f,
+              w13_f,w14_f,w15_f,w16_f,w17_f,
+              w18_f,w19_f,w20_f,w21_f,w22_f))
+
+w_f
+
+par(mfrow=c(2,3))
+
+for(i in c(1:6)){
+  plot(df_train_model_numerical$price ~ df_train_model_numerical[,i], main=paste("Sale Price^-0.11 vs.", names(df_train_model_numerical)[i]), xlab=names(df_train_model_numerical)[i], ylab="Sale Price")
+  points(df_train_model_numerical[w_f,8]~df_train_model_numerical[w_f,i], col="red", pch=19)
+}
+```
+Summary:
+  - 412, 3322, 4391, 12552, 18333, 18469, 285, 2347, 3109, 8796, 12813, 12900 ---> Not Leverage, Not Influential, Just Outliers
+  - 808, 4114, 13616 ---> Influential
+
+###Model Validation
+```{r}
+final_model_test <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(grade) + yr_built + as.factor(yr_renovated) + sqft_living15, data = df_test_model)
+
+summary(final_model)
+summary(final_model_test)
+vif(final_model_test)
+which(cooks.distance(final_model_test)>qf(0.5, 9, 6484-8-1))
+which(abs(dffits(final_model_test)) > 2*sqrt(9/6484))
+par(mfrow=c(2,3))
+plot(rstandard(final_model_test)~df_test_model_numerical$bedrooms)
+plot(rstandard(final_model_test)~df_test_model_numerical$bathrooms)
+plot(rstandard(final_model_test)~df_test_model_numerical$sqft_living)
+plot(rstandard(final_model_test)~df_test_model_numerical$sqft_lot)
+plot(rstandard(final_model_test)~df_test_model_numerical$yr_built)
+plot(rstandard(final_model_test)~df_test_model_numerical$sqft_living15)
+qqnorm(rstandard(final_model_test))
+qqline(rstandard(final_model_test))
+```
+Remark:
+  - coefficients : validated
+  - influential observations : seems to fail the validation
+
+```{r}
+# Just to validate one more model : second_round_model_3
+second_round_model_3 <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(grade) + yr_built + as.factor(yr_renovated), data = df_train_model)
+second_round_model_3_test <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + as.factor(grade) + yr_built + as.factor(yr_renovated), data = df_test_model)
+
+
+summary(second_round_model_3)
+summary(second_round_model_3_test)
+vif(second_round_model_3_test)
+which(cooks.distance(second_round_model_3_test)>qf(0.5, 8, 6484-7-1))
+which(abs(dffits(second_round_model_3_test)) > 2*sqrt(8/6484))
+par(mfrow=c(2,3))
+plot(rstandard(second_round_model_3_test)~df_test_model_numerical$bedrooms)
+plot(rstandard(second_round_model_3_test)~df_test_model_numerical$bathrooms)
+plot(rstandard(second_round_model_3_test)~df_test_model_numerical$sqft_living)
+plot(rstandard(second_round_model_3_test)~df_test_model_numerical$sqft_lot)
+plot(rstandard(second_round_model_3_test)~df_test_model_numerical$yr_built)
+qqnorm(rstandard(second_round_model_3_test))
+qqline(rstandard(second_round_model_3_test))
+```
+Remark:
+  - coefficients : validated
+  - influential observations : seems to fail the validation
+  - hence, the final model does not change
+  
+###Model Performance Evaluation : Prediction Interval
+```{r}
+beta_hats <- summary(final_model)$coefficients[,1]
+df_test_evaluation <- df_test_model[,c(1,2,3,4,7,8,9,10,12)]
+xvalues <- sample_n(df_test_evaluation, 10)
+
+beta_hats
+xvalues
+```
+
+```{r}
+predict(final_model, newdata=xvalues, interval="prediction", level=0.95)
+xvalues[,c(9)]
+```
+Remark:
+  1. predicted value: 0.2417539 (0.2255497,0.2579581) ---> actual value: 0.2453267 ---> 1.4563% abs. error
+  2. predicted value: 0.2356335 (0.2194318,0.2518352) ---> actual value: 0.2307975 ---> 2.0953% abs. error
+  3. predicted value: 0.2364937 (0.2202895,0.2526979) ---> actual value: 0.2346009 ---> 0.8068% abs. error
+  4. predicted value: 0.2346151 (0.2184128,0.2508173) ---> actual value: 0.2465857 ---> 4.8545% abs. error
+  5. predicted value: 0.2426802 (0.2264770,0.2588834) ---> actual value: 0.2526884 ---> 3.9607% abs. error
+  6. predicted value: 0.2455445 (0.2293440,0.2617451) ---> actual value: 0.2382850 ---> 3.0466% abs. error
+  7. predicted value: 0.2512836 (0.2350757,0.2674915) ---> actual value: 0.2565562 ---> 2.0551% abs. error
+  8. predicted value: 0.2370229 (0.2208175,0.2532284) ---> actual value: 0.2336469 ---> 1.4449% abs. error
+  9. predicted value: 0.2433210 (0.2271153,0.2595267) ---> actual value: 0.2348481 ---> 3.6078% abs. error
+  10. predicted value: 0.2140236 (0.1978123,0.2302349) ---> actual value: 0.2187762 ---> 2.1724% abs. error
+
+  ===> The selected final model is able to correctly predict the sale price with a high degree of accuracy (2.55% abs. error on avg.)
